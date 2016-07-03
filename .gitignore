@@ -1,0 +1,6 @@
+*.exe
+hamon
+test*
+.vscode*
+debug
+*.zip
