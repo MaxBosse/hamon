@@ -32,7 +32,7 @@ const (
 	// Name of the Application
 	Name = "HaMon"
 	// Version of the Application
-	Version = "0.0.2"
+	Version = "0.0.3.2"
 
 	normGraph = "├──"
 	endGraph  = "└──"

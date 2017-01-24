@@ -135,17 +135,19 @@ func process(LB *haproxy.GlobalMap, config Config) statistics {
 					if Server.Tracked == "" {
 						switch Server.Status {
 						case "UP":
-							if Server.Scur > 50 {
-								var buffer bytes.Buffer
-								buffer.WriteString(Server.Status)
-								buffer.WriteString(" has high current sessions: ")
-								buffer.WriteString(strconv.Itoa(Server.Scur))
+							if bIgnoreHighSessions, _ := config.Loadbalancers[LbName].Options["ignoreHighSessions"].(bool); !bIgnoreHighSessions {
+								if Server.Scur > 50 {
+									var buffer bytes.Buffer
+									buffer.WriteString(Server.Status)
+									buffer.WriteString(" has high current sessions: ")
+									buffer.WriteString(strconv.Itoa(Server.Scur))
 
-								var tmpS server
-								tmpS.name = ServerName
-								tmpS.group = GroupName
-								tmpS.status = buffer.String()
-								lbstats.servers = append(lbstats.servers, tmpS)
+									var tmpS server
+									tmpS.name = ServerName
+									tmpS.group = GroupName
+									tmpS.status = buffer.String()
+									lbstats.servers = append(lbstats.servers, tmpS)
+								}
 							}
 						case "0":
 							log.Warningf("ERROR CASE 0 ON %s %s %s", ServerName, GroupName, LbName)

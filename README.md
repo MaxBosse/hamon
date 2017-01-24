@@ -4,7 +4,7 @@ Goal of this tool is to have a simple small monitor for multiple loadbalancers.
 
 Example output:
 ```
-HaMon 0.0.2 - HEAD HEAD 2016-07-03_01:46:16
+HaMon 0.0.3.2 - HEAD HEAD 2016-07-03_01:46:16
 Global Sessions: 2220           Global SessionsRate: 1090
 
 Haproxy 1        Sessions: 330   SessionRate: 597

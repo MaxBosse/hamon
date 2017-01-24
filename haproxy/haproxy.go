@@ -15,14 +15,15 @@ import (
 	"github.com/MaxBosse/hamon/log"
 )
 
-type GlobalMap map[string]map[string]map[string]Stats
-type LoadbalancerMap map[string]map[string]Stats
+type GlobalMap map[string]LoadbalancerMap
+type LoadbalancerMap map[string]GroupMap
 type GroupMap map[string]Stats
 
 // Loadbalancer ...
 type Loadbalancer struct {
-	Name string
-	Urls []string
+	Name    string
+	Urls    []string
+	Options map[string]interface{}
 }
 
 // Stats ...
@@ -89,6 +90,27 @@ type Stats struct {
 	Ctime         string
 	Rtime         string
 	Ttime         string
+	AgentStatus   string
+	AgentCode     string
+	AgentDuration string
+	CheckDesc     string
+	AgentDesc     string
+	CheckRise     string
+	CheckFall     string
+	CheckHealth   string
+	AgentRise     string
+	AgentFall     string
+	AgentHealth   string
+	Addr          string
+	Cookie        string
+	Mode          string
+	Algo          string
+	ConnRate      string
+	ConnRateMax   string
+	ConnTot       string
+	Intercepted   string
+	Dcon          string
+	Dses          string
 	Dummy         string
 }
 
@@ -158,6 +180,13 @@ func Load(Loadbalancers map[string]Loadbalancer) (*GlobalMap, error) {
 }
 
 func getCsv(url string, name string, c chan lbChan) {
+	defer func() {
+		if r := recover(); r != nil {
+			var tempa lbChan
+			log.Errorln("recovered", r)
+			c <- tempa
+		}
+	}()
 	var tempa lbChan
 	tempa.Name = name
 	log.Noteln("Requesting", url)
@@ -187,16 +216,23 @@ func unmarshal(reader *csv.Reader, thisLB LoadbalancerMap) error {
 		return err
 	}
 
+	log.Debugf("Parsing line ", record)
+
 	s := reflect.ValueOf(&tempStats).Elem()
 	sT := reflect.TypeOf(tempStats)
 
 	// Make sure it fits into our stats struct
-	if s.NumField() != len(record) {
+	if s.NumField() < len(record) {
 		return &fieldMismatch{s.NumField(), len(record)}
 	}
 
 	// Start iterating over each field
-	for i := 0; i < s.NumField(); i++ {
+	for i := 0; i < len(record); i++ {
+
+		// Abort adding to struct early if we don't have all fields because of older HaProxy version
+		if i >= len(record) {
+			break
+		}
 
 		fT := sT.Field(i)
 		f := s.Field(i)
@@ -237,6 +273,10 @@ func unmarshal(reader *csv.Reader, thisLB LoadbalancerMap) error {
 				}
 			}
 		case "int":
+			log.Debugf("turning %d  to int as %s", i, record[i])
+			if record[i] == "" {
+				record[i] = "0"
+			}
 			ival, err := strconv.ParseInt(record[i], 10, 0)
 			if err != nil {
 				return err
