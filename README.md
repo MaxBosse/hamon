@@ -1,4 +1,6 @@
 # HaMon - Haproxy Monitor
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FMaxBosse%2Fhamon.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2FMaxBosse%2Fhamon?ref=badge_shield)
+
 
 Goal of this tool is to have a simple small monitor for multiple loadbalancers.
 
@@ -19,3 +21,6 @@ Haproxy 3        Sessions: 196   SessionRate: 146
 
 Last update: 2016-07-03 03:46:58
 ```
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FMaxBosse%2Fhamon.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2FMaxBosse%2Fhamon?ref=badge_large)
