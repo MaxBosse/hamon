@@ -1,5 +1,5 @@
 *.exe
-hamon
+hamon*
 test*
 .vscode*
 debug

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,15 +76,15 @@ func (ms *multiSorter) Less(i, j int) bool {
 
 type loadbalancer struct {
 	name             string
-	totalSession     int
-	totalSessionRate int
+	totalSession     int64
+	totalSessionRate int64
 	status           string
 	servers          sortServer
 }
 
 type statistics struct {
-	totalSession     int
-	totalSessionRate int
+	totalSession     int64
+	totalSessionRate int64
 	loadbalancers    loadbalancers
 }
 
@@ -114,8 +113,15 @@ func leftPad2Len(s string, padStr string, overallLen int) string {
 
 func process(LB *haproxy.GlobalMap, config Config) statistics {
 	var (
-		lbs   loadbalancers
-		stats statistics
+		lbs                 loadbalancers
+		stats               statistics
+		str                 strings.Builder
+		tmpS                server
+		ival                int64
+		err                 error
+		bIgnoreHighSessions bool
+		scur                int64
+		rate                int64
 	)
 
 	for LbName, Loadbalancer := range *LB {
@@ -123,29 +129,31 @@ func process(LB *haproxy.GlobalMap, config Config) statistics {
 		lbstats.name = LbName
 		for GroupName, Group := range Loadbalancer {
 			for ServerName, Server := range Group {
+				scur, _ = strconv.ParseInt(Server["scur"], 10, 64)
+				rate, _ = strconv.ParseInt(Server["rate"], 10, 64)
+
 				if ServerName == "FRONTEND" {
-					stats.totalSession += Server.Scur
-					lbstats.totalSession += Server.Scur
-					log.Notef("Adding sessions %d to lb %s from group %s and server %s", Server.Scur, LbName, GroupName, ServerName)
+					stats.totalSession += scur
+					lbstats.totalSession += scur
+					log.Notef("Adding sessions %d to lb %s from group %s and server %s", scur, LbName, GroupName, ServerName)
 
-					stats.totalSessionRate += Server.Rate
-					lbstats.totalSessionRate += Server.Rate
-					log.Notef("Adding sessionsrate %d to lb %s from group %s and server %s", Server.Rate, LbName, GroupName, ServerName)
+					stats.totalSessionRate += rate
+					lbstats.totalSessionRate += rate
+					log.Notef("Adding sessionsrate %d to lb %s from group %s and server %s", Server["rate"], LbName, GroupName, ServerName)
 				} else if ServerName != "BACKEND" {
-					if Server.Tracked == "" {
-						switch Server.Status {
+					if Server["tracked"] == "0" {
+						switch Server["status"] {
 						case "UP":
-							if bIgnoreHighSessions, _ := config.Loadbalancers[LbName].Options["ignoreHighSessions"].(bool); !bIgnoreHighSessions {
-								if Server.Scur > 50 {
-									var buffer bytes.Buffer
-									buffer.WriteString(Server.Status)
-									buffer.WriteString(" has high current sessions: ")
-									buffer.WriteString(strconv.Itoa(Server.Scur))
+							if bIgnoreHighSessions, _ = config.Loadbalancers[LbName].Options["ignoreHighSessions"].(bool); !bIgnoreHighSessions {
+								if scur > 150 {
+									str.Reset()
+									str.WriteString(Server["status"])
+									str.WriteString(" has high current sessions: ")
+									str.WriteString(Server["scur"])
 
-									var tmpS server
 									tmpS.name = ServerName
 									tmpS.group = GroupName
-									tmpS.status = buffer.String()
+									tmpS.status = str.String()
 									lbstats.servers = append(lbstats.servers, tmpS)
 								}
 							}
@@ -153,28 +161,26 @@ func process(LB *haproxy.GlobalMap, config Config) statistics {
 							log.Warningf("ERROR CASE 0 ON %s %s %s", ServerName, GroupName, LbName)
 						case "no check":
 							if !config.HideNoCheck {
-								var tmpS server
 								tmpS.name = ServerName
 								tmpS.group = GroupName
 								tmpS.status = "Server has no check defined!"
 								lbstats.servers = append(lbstats.servers, tmpS)
 							}
 						default:
-							var buffer bytes.Buffer
-							buffer.WriteString(Server.Status)
-							buffer.WriteString(" for ")
-							ival, err := strconv.ParseInt(Server.Lastchg, 10, 0)
+							str.Reset()
+							str.WriteString(Server["status"])
+							str.WriteString(" for ")
+							ival, err = strconv.ParseInt(Server["lastchg"], 10, 64)
 							if err != nil {
-								buffer.WriteString(Server.Lastchg)
-								buffer.WriteString(" seconds")
+								str.WriteString(Server["lastchg"])
+								str.WriteString(" seconds")
 							} else {
-								buffer.WriteString((time.Duration(ival) * time.Second).String())
+								str.WriteString((time.Duration(ival) * time.Second).String())
 							}
 
-							var tmpS server
 							tmpS.name = ServerName
 							tmpS.group = GroupName
-							tmpS.status = buffer.String()
+							tmpS.status = str.String()
 							lbstats.servers = append(lbstats.servers, tmpS)
 						}
 					}

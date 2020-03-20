@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -17,101 +16,13 @@ import (
 
 type GlobalMap map[string]LoadbalancerMap
 type LoadbalancerMap map[string]GroupMap
-type GroupMap map[string]Stats
+type GroupMap map[string]map[string]string
 
 // Loadbalancer ...
 type Loadbalancer struct {
 	Name    string
 	Urls    []string
 	Options map[string]interface{}
-}
-
-// Stats ...
-type Stats struct {
-	Pxname        string `strict:"true"` // we use it for merging
-	Svname        string `strict:"true"` // we use it for merging
-	Qcur          string
-	Qmax          string
-	Scur          int
-	Smax          int
-	Slim          string
-	Stot          int
-	Bin           int
-	Bout          int
-	Dreq          string
-	Dresp         int
-	Ereq          string
-	Econ          string
-	Eresp         string
-	Wretr         string
-	Wredis        string
-	Status        string
-	Weight        string
-	Act           string
-	Bck           string
-	Chkfail       string
-	Chkdown       string
-	Lastchg       string `strict:"true"` // seconds since last change should not be summed up
-	Downtime      string
-	Qlimit        string
-	Pid           int
-	Iid           int
-	Sid           int
-	Throttle      string
-	Lbtot         string
-	Tracked       string
-	Type          int
-	Rate          int
-	RateLim       string
-	RateMax       int
-	CheckStatus   string
-	CheckCode     string
-	CheckDuration string
-	Hrsp1xx       int
-	Hrsp2xx       int
-	Hrsp3xx       int
-	Hrsp4xx       int
-	Hrsp5xx       int
-	HrspOther     int
-	Hanafail      string
-	ReqRate       string
-	ReqRateMax    string
-	ReqTot        string
-	CliAbrt       string
-	SrvAbrt       string
-	CompIn        string
-	CompOut       string
-	CompByp       string
-	CompRsp       string
-	Lastsess      string
-	LastChk       string
-	LastAgt       string
-	Qtime         string
-	Ctime         string
-	Rtime         string
-	Ttime         string
-	AgentStatus   string
-	AgentCode     string
-	AgentDuration string
-	CheckDesc     string
-	AgentDesc     string
-	CheckRise     string
-	CheckFall     string
-	CheckHealth   string
-	AgentRise     string
-	AgentFall     string
-	AgentHealth   string
-	Addr          string
-	Cookie        string
-	Mode          string
-	Algo          string
-	ConnRate      string
-	ConnRateMax   string
-	ConnTot       string
-	Intercepted   string
-	Dcon          string
-	Dses          string
-	Dummy         string
 }
 
 type lbChan struct {
@@ -157,7 +68,6 @@ func Load(Loadbalancers map[string]Loadbalancer) (*GlobalMap, error) {
 		select {
 		case lbc = <-c:
 			r := csv.NewReader(strings.NewReader(lbc.Body))
-			r.Comment = '#'
 			r.TrimLeadingSpace = true
 			log.Noteln("start unmarshaling ", lbc.Name)
 			for {
@@ -208,51 +118,72 @@ func getCsv(url string, name string, c chan lbChan) {
 }
 
 func unmarshal(reader *csv.Reader, thisLB LoadbalancerMap) error {
-	tempStats := Stats{}
+	// Avoid allocs in the for loop
+	var (
+		y         int
+		i         int
+		keyName   string
+		oldValue  string
+		ok        bool
+		ival      int64
+		oval      int64
+		err       error
+		olderr    error
+		record    []string
+		tempStats map[string]string
+	)
+
+	positionMap := make(map[int]string)
+	statsToLoad := make(map[string]bool)
+	statsToLoad["scur"] = true
+	statsToLoad["rate"] = true
+	statsToLoad["tracked"] = true
+	statsToLoad["status"] = true
+	statsToLoad["lastchg"] = true
+	statsToLoad["pxname"] = true
+	statsToLoad["svname"] = true
 
 	// Read a line
-	record, err := reader.Read()
-	if err != nil {
-		return err
-	}
+	firstLine := true
+	for {
+		tempStats = make(map[string]string)
 
-	log.Debugf("Parsing line ", record)
-
-	s := reflect.ValueOf(&tempStats).Elem()
-	sT := reflect.TypeOf(tempStats)
-
-	// Make sure it fits into our stats struct
-	if s.NumField() < len(record) {
-		return &fieldMismatch{s.NumField(), len(record)}
-	}
-
-	// Start iterating over each field
-	for i := 0; i < len(record); i++ {
-
-		// Abort adding to struct early if we don't have all fields because of older HaProxy version
-		if i >= len(record) {
-			break
+		record, err = reader.Read()
+		if err != nil {
+			return err
 		}
 
-		fT := sT.Field(i)
-		f := s.Field(i)
-		switch f.Type().String() {
-		case "string":
-			// Skip merging for strict fields
-			if fT.Tag.Get("strict") == "true" {
-				f.SetString(record[i])
-				continue
+		if firstLine {
+			for y = 0; y < len(record); y++ {
+				if y == 0 {
+					positionMap[y] = record[y][2:]
+					continue
+				}
+				positionMap[y] = record[y]
 			}
 
-			if _, ok := thisLB[tempStats.Pxname][tempStats.Svname]; !ok {
-				f.SetString(record[i])
-				continue
-			} else {
-				oldValue := reflect.ValueOf(thisLB[tempStats.Pxname][tempStats.Svname]).Field(i).String()
+			firstLine = false
 
-				if oldValue != record[i] {
-					ival, err := strconv.ParseInt(record[i], 10, 0)
-					oval, olderr := strconv.ParseInt(oldValue, 10, 0)
+			continue
+		}
+
+		for i = 0; i < len(record); i++ {
+			keyName, _ = positionMap[i]
+			if _, ok = statsToLoad[keyName]; ok {
+				if record[i] == "" {
+					record[i] = "0"
+				}
+
+				if keyName == "pxname" || keyName == "svname" || keyName == "lastchg" {
+					tempStats[keyName] = record[i]
+					continue
+				}
+
+				oldValue = thisLB[tempStats["pxname"]][tempStats["svname"]][keyName]
+
+				if oldValue != record[i] && oldValue != "" {
+					ival, err = strconv.ParseInt(record[i], 10, 64)
+					oval, olderr = strconv.ParseInt(oldValue, 10, 64)
 					// Merge as string if one record could not be converted to an integer
 					if err != nil || olderr != nil {
 						var buffer bytes.Buffer
@@ -260,65 +191,23 @@ func unmarshal(reader *csv.Reader, thisLB LoadbalancerMap) error {
 						buffer.WriteString(",")
 						buffer.WriteString(record[i])
 						log.Debugf("%d: Combining strings to %s", i, buffer.String())
-						f.SetString(buffer.String())
+						tempStats[keyName] = buffer.String()
 						continue
 					}
 
-					log.Debugf("%d: Adding strings to %d", i, oval)
-					f.SetString(strconv.FormatInt(ival, 10))
-					continue
-				} else {
-					f.SetString(record[i])
+					tempStats[keyName] = strconv.FormatInt(ival+oval, 10)
 					continue
 				}
-			}
-		case "int":
-			log.Debugf("turning %d  to int as %s", i, record[i])
-			if record[i] == "" {
-				record[i] = "0"
-			}
-			ival, err := strconv.ParseInt(record[i], 10, 0)
-			if err != nil {
-				return err
-			}
 
-			// Skip merging for strict fields
-			if fT.Tag.Get("strict") == "true" {
-				f.SetInt(ival)
-				continue
+				tempStats[keyName] = record[i]
 			}
-
-			// Add to already existing number if server already exists in this lb+group
-			if _, ok := thisLB[tempStats.Pxname][tempStats.Svname]; ok {
-				ival += reflect.ValueOf(thisLB[tempStats.Pxname][tempStats.Svname]).Field(i).Int()
-			}
-			f.SetInt(ival)
-			continue
-		default:
-			return &unsupportedType{f.Type().String()}
 		}
+
+		if len(thisLB[tempStats["pxname"]]) == 0 {
+			thisLB[tempStats["pxname"]] = make(GroupMap)
+		}
+		thisLB[tempStats["pxname"]][tempStats["svname"]] = tempStats
+
+		log.Debugf("%+v", thisLB[tempStats["pxname"]][tempStats["svname"]])
 	}
-
-	if len(thisLB[tempStats.Pxname]) == 0 {
-		thisLB[tempStats.Pxname] = make(GroupMap)
-	}
-	thisLB[tempStats.Pxname][tempStats.Svname] = tempStats
-
-	return nil
-}
-
-type fieldMismatch struct {
-	expected, found int
-}
-
-func (e *fieldMismatch) Error() string {
-	return "CSV line fields mismatch. Expected " + strconv.Itoa(e.expected) + " found " + strconv.Itoa(e.found)
-}
-
-type unsupportedType struct {
-	Type string
-}
-
-func (e *unsupportedType) Error() string {
-	return "Unsupported type: " + e.Type
 }

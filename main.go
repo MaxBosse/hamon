@@ -32,31 +32,14 @@ const (
 	// Name of the Application
 	Name = "HaMon"
 	// Version of the Application
-	Version = "0.0.3.2"
+	Version = "0.0.4"
 
 	normGraph = "├──"
 	endGraph  = "└──"
 )
 
-func main() {
-	var (
-		configPath = flag.String("config", "config.yml", "Path to yml configuration file")
-		logLevel   = flag.String("loglevel", "error", "LogLevel [error|warning|note|debug]")
-		config     = Config{
-			HideNoCheck: false,
-			Timeout:     5,
-		}
-	)
-	flag.Parse()
-
-	log.SetLevel(*logLevel)
-
-	log.Noteln("Starting up...")
-
-	config.Load(*configPath)
-	haproxy.SetTimeout(config.Timeout)
+func loop(config Config) {
 	for {
-
 		//log.Print("Starting loading...")
 		LB, err := haproxy.Load(config.Loadbalancers)
 		if err != nil {
@@ -67,12 +50,13 @@ func main() {
 		stats := process(LB, config)
 
 		sort.Sort(stats.loadbalancers)
+
 		fmt.Printf("\033[H\033[2J")
 		fmt.Println(Name, Version, "-", GitHash, GitBranch, BuildTime)
 		fmt.Println("Global Sessions:", stats.totalSession, "\t\tGlobal SessionsRate:", stats.totalSessionRate)
 		fmt.Println("")
 		for _, loadbalancer := range stats.loadbalancers {
-			fmt.Println(rightPad2Len(loadbalancer.name, " ", 10), "Sessions:", rightPad2Len(strconv.Itoa(loadbalancer.totalSession), " ", 5), "SessionRate:", loadbalancer.totalSessionRate)
+			fmt.Println(rightPad2Len(loadbalancer.name, " ", 10), "Sessions:", rightPad2Len(strconv.FormatInt(loadbalancer.totalSession, 10), " ", 5), "SessionRate:", loadbalancer.totalSessionRate)
 
 			OrderedBy(group, name).Sort(loadbalancer.servers)
 			i := 1
@@ -90,26 +74,30 @@ func main() {
 		}
 		fmt.Println("")
 		t := time.Now()
-		fmt.Println("Last update:", t.Format("2006-01-02 15:04:05"))
+		fmt.Printf("Last update: %s\n", t.Format("2006-01-02 15:04:05"))
 
-		time.Sleep(time.Second)
+		time.Sleep(time.Second * 5)
 	}
+}
 
-	/*
-		log.Print("Starting loading...")
-		LB, err := haproxy.Load(config)
-		if err != nil {
-			panic(err)
+func main() {
+	var (
+		configPath = flag.String("config", "config.yml", "Path to yml configuration file")
+		logLevel   = flag.String("loglevel", "error", "LogLevel [error|warning|note|debug]")
+		config     = Config{
+			HideNoCheck: false,
+			Timeout:     5,
 		}
-		log.Print("Loading done.")
+	)
 
-		time.Sleep(time.Second * 20)
+	flag.Parse()
 
-		b, err := json.MarshalIndent(LB, "", "  ")
-		if err != nil {
-			fmt.Println("error:", err)
-		}
-		fmt.Print(string(b))
-	*/
+	log.SetLevel(*logLevel)
 
+	log.Noteln("Starting up...")
+
+	config.Load(*configPath)
+	haproxy.SetTimeout(config.Timeout)
+
+	loop(config)
 }
